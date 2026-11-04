@@ -12,6 +12,7 @@ public class VetAgendamentoServiceApplication {
                 .ignoreIfMissing()
                 .systemProperties()
                 .load();
+
         SpringApplication.run(VetAgendamentoServiceApplication.class, args);
     }
 }
