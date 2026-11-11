@@ -7,7 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 
 public record AgendamentoRequest(
-        @NotNull @Positive Long tutorId,
+        @Positive Long tutorId,
         @NotNull @Positive Long animalId,
         @NotNull @Positive Long veterinarioId,
         @NotNull LocalDate data,

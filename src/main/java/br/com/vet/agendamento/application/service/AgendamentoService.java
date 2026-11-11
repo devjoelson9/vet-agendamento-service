@@ -5,11 +5,16 @@ import br.com.vet.agendamento.application.dto.response.AgendamentoResponse;
 import br.com.vet.agendamento.application.exception.BusinessException;
 import br.com.vet.agendamento.application.exception.ConflictException;
 import br.com.vet.agendamento.application.exception.ResourceNotFoundException;
+import br.com.vet.agendamento.application.gateway.AnimalInfo;
+import br.com.vet.agendamento.application.gateway.IdentidadeGateway;
+import br.com.vet.agendamento.application.gateway.TutorInfo;
 import br.com.vet.agendamento.domain.enums.StatusAgendamento;
 import br.com.vet.agendamento.domain.model.Agendamento;
 import br.com.vet.agendamento.domain.model.Disponibilidade;
 import br.com.vet.agendamento.domain.repository.AgendamentoRepository;
+import br.com.vet.agendamento.infrastructure.security.UsuarioAutenticado;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,9 +29,15 @@ public class AgendamentoService {
 
     private final AgendamentoRepository agendamentoRepository;
     private final DisponibilidadeService disponibilidadeService;
+    private final IdentidadeGateway identidadeGateway;
+    private final UsuarioAutenticado usuarioAutenticado;
 
     @Transactional
     public AgendamentoResponse criar(AgendamentoRequest request) {
+        TutorInfo tutor = resolverTutor(request.tutorId());
+        validarTutorAtivo(tutor);
+        validarAnimalDoTutor(tutor.id(), request.animalId());
+
         Disponibilidade disponibilidade = disponibilidadeService.resolverDisponibilidade(
                 request.veterinarioId(), request.data(), request.horaInicio());
         LocalTime horaFim = request.horaInicio().plusMinutes(disponibilidade.getDuracaoConsulta());
@@ -34,7 +45,7 @@ public class AgendamentoService {
         validarConflito(request.veterinarioId(), request.data(), request.horaInicio(), horaFim, null);
 
         Agendamento agendamento = new Agendamento();
-        aplicarDados(agendamento, request, horaFim);
+        aplicarDados(agendamento, request, tutor.id(), horaFim);
         agendamento.setStatus(StatusAgendamento.AGENDADO);
         return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
     }
@@ -43,12 +54,15 @@ public class AgendamentoService {
     public List<AgendamentoResponse> listar(
             LocalDate inicio,
             LocalDate fim,
+            Long tutorId,
             Long veterinarioId,
             Long animalId,
             StatusAgendamento status
     ) {
         validarPeriodo(inicio, fim);
-        return agendamentoRepository.buscarNoPeriodo(inicio, fim, veterinarioId, animalId, status)
+        Long tutorFiltro = resolverTutorFiltro(tutorId);
+        return agendamentoRepository
+                .buscarNoPeriodo(inicio, fim, tutorFiltro, veterinarioId, animalId, status)
                 .stream()
                 .map(AgendamentoResponse::from)
                 .toList();
@@ -56,7 +70,9 @@ public class AgendamentoService {
 
     @Transactional(readOnly = true)
     public AgendamentoResponse buscar(Long id) {
-        return AgendamentoResponse.from(buscarAtivo(id));
+        Agendamento agendamento = buscarAtivo(id);
+        validarAcessoAoTutor(agendamento.getTutorId());
+        return AgendamentoResponse.from(agendamento);
     }
 
     @Transactional
@@ -72,7 +88,7 @@ public class AgendamentoService {
 
         validarConflito(request.veterinarioId(), request.data(), request.horaInicio(), horaFim, id);
 
-        aplicarDados(agendamento, request, horaFim);
+        aplicarDados(agendamento, request, agendamento.getTutorId(), horaFim);
         return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
     }
 
@@ -101,8 +117,57 @@ public class AgendamentoService {
         agendamentoRepository.save(agendamento);
     }
 
-    private void aplicarDados(Agendamento agendamento, AgendamentoRequest request, LocalTime horaFim) {
-        agendamento.setTutorId(request.tutorId());
+    private TutorInfo resolverTutor(Long tutorIdInformado) {
+        if (usuarioAutenticado.isTutor()) {
+            TutorInfo tutor = identidadeGateway.buscarTutorAutenticado();
+            if (tutorIdInformado != null && !tutorIdInformado.equals(tutor.id())) {
+                throw new AccessDeniedException("Tutor não pode agendar para outro tutor");
+            }
+            return tutor;
+        }
+        if (usuarioAutenticado.isRecepcionista()) {
+            if (tutorIdInformado == null) {
+                throw new BusinessException("O tutor é obrigatório no agendamento feito pela recepção");
+            }
+            return identidadeGateway.buscarTutor(tutorIdInformado);
+        }
+        throw new AccessDeniedException("Perfil sem permissão para agendar consultas");
+    }
+
+    private void validarTutorAtivo(TutorInfo tutor) {
+        if (!tutor.ativo()) {
+            throw new BusinessException(
+                    "A conta do tutor está desativada e não pode possuir consultas agendadas");
+        }
+    }
+
+    private void validarAnimalDoTutor(Long tutorId, Long animalId) {
+        AnimalInfo animal = usuarioAutenticado.isTutor()
+                ? identidadeGateway.buscarAnimalDoTutorAutenticado(animalId)
+                : identidadeGateway.buscarAnimalDoTutor(tutorId, animalId);
+
+        if (!tutorId.equals(animal.tutorId())) {
+            throw new AccessDeniedException("O animal não pertence ao tutor informado");
+        }
+    }
+
+    private Long resolverTutorFiltro(Long tutorIdInformado) {
+        if (usuarioAutenticado.isTutor()) {
+            return identidadeGateway.buscarTutorAutenticado().id();
+        }
+        return tutorIdInformado;
+    }
+
+    private void validarAcessoAoTutor(Long tutorIdDoAgendamento) {
+        if (usuarioAutenticado.isTutor()
+                && !identidadeGateway.buscarTutorAutenticado().id().equals(tutorIdDoAgendamento)) {
+            throw new AccessDeniedException("Tutor não pode acessar o agendamento de outro tutor");
+        }
+    }
+
+    private void aplicarDados(
+            Agendamento agendamento, AgendamentoRequest request, Long tutorId, LocalTime horaFim) {
+        agendamento.setTutorId(tutorId);
         agendamento.setAnimalId(request.animalId());
         agendamento.setVeterinarioId(request.veterinarioId());
         agendamento.setData(request.data());
