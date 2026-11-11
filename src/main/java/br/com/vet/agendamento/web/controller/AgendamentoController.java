@@ -68,6 +68,12 @@ public class AgendamentoController {
         return ResponseEntity.ok(service.buscar(id));
     }
 
+    @PostMapping("/{id}/check-in")
+    @PreAuthorize("hasRole('RECEPCIONISTA')")
+    public ResponseEntity<AgendamentoResponse> realizarCheckIn(@PathVariable Long id) {
+        return ResponseEntity.ok(service.realizarCheckIn(id));
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('TUTOR', 'RECEPCIONISTA')")
     public ResponseEntity<AgendamentoResponse> atualizar(

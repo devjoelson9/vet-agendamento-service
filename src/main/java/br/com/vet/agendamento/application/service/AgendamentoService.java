@@ -114,6 +114,28 @@ public class AgendamentoService {
     }
 
     @Transactional
+    public AgendamentoResponse realizarCheckIn(Long id) {
+        Agendamento agendamento = buscarAtivo(id);
+
+        if (agendamento.getStatus() == StatusAgendamento.AGUARDANDO_ATENDIMENTO) {
+            if (agendamento.getHorarioCheckin() == null) {
+                agendamento.setHorarioCheckin(LocalDateTime.now());
+                return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
+            }
+            return AgendamentoResponse.from(agendamento);
+        }
+
+        if (agendamento.getStatus() != StatusAgendamento.AGENDADO) {
+            throw new BusinessException(
+                    "Somente agendamentos com status AGENDADO podem realizar check-in");
+        }
+
+        agendamento.setHorarioCheckin(LocalDateTime.now());
+        agendamento.setStatus(StatusAgendamento.AGUARDANDO_ATENDIMENTO);
+        return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
+    }
+
+    @Transactional
     public void cancelar(Long id) {
         Agendamento agendamento = buscarAtivo(id);
         validarAcessoAoTutor(agendamento.getTutorId());
