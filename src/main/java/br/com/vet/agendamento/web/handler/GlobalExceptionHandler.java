@@ -3,6 +3,7 @@ package br.com.vet.agendamento.web.handler;
 import br.com.vet.agendamento.application.dto.response.ApiErrorResponse;
 import br.com.vet.agendamento.application.exception.BusinessException;
 import br.com.vet.agendamento.application.exception.ConflictException;
+import br.com.vet.agendamento.application.exception.IntegrationException;
 import br.com.vet.agendamento.application.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -98,6 +99,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleBusiness(
             BusinessException ex, HttpServletRequest request) {
         return buildError(HttpStatus.BAD_REQUEST, "Business Error", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(IntegrationException.class)
+    public ResponseEntity<ApiErrorResponse> handleIntegration(
+            IntegrationException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.SERVICE_UNAVAILABLE, "Service Unavailable", ex.getMessage(), request);
     }
 
     private ResponseEntity<ApiErrorResponse> buildError(
