@@ -75,6 +75,17 @@ public class AgendamentoService {
         return AgendamentoResponse.from(agendamento);
     }
 
+    @Transactional(readOnly = true)
+    public List<AgendamentoResponse> listarFilaEspera(Long veterinarioId, LocalDate data) {
+        LocalDate dia = data != null ? data : LocalDate.now();
+        return agendamentoRepository
+                .buscarNoPeriodo(dia, dia, null, veterinarioId, null,
+                        StatusAgendamento.AGUARDANDO_ATENDIMENTO)
+                .stream()
+                .map(AgendamentoResponse::from)
+                .toList();
+    }
+
     @Transactional
     public AgendamentoResponse atualizar(Long id, AgendamentoRequest request) {
         Agendamento agendamento = buscarAtivo(id);
@@ -110,6 +121,28 @@ public class AgendamentoService {
             agendamento.setHorarioCheckin(LocalDateTime.now());
         }
         agendamento.setStatus(status);
+        return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
+    }
+
+    @Transactional
+    public AgendamentoResponse realizarCheckIn(Long id) {
+        Agendamento agendamento = buscarAtivo(id);
+
+        if (agendamento.getStatus() == StatusAgendamento.AGUARDANDO_ATENDIMENTO) {
+            if (agendamento.getHorarioCheckin() == null) {
+                agendamento.setHorarioCheckin(LocalDateTime.now());
+                return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
+            }
+            return AgendamentoResponse.from(agendamento);
+        }
+
+        if (agendamento.getStatus() != StatusAgendamento.AGENDADO) {
+            throw new BusinessException(
+                    "Somente agendamentos com status AGENDADO podem realizar check-in");
+        }
+
+        agendamento.setHorarioCheckin(LocalDateTime.now());
+        agendamento.setStatus(StatusAgendamento.AGUARDANDO_ATENDIMENTO);
         return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
     }
 
