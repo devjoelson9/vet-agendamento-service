@@ -20,13 +20,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -173,6 +176,71 @@ class AgendamentoServiceTest {
 
         assertThat(response.status()).isEqualTo("AGUARDANDO_ATENDIMENTO");
         assertThat(response.horarioCheckin()).isNotNull();
+    }
+
+    @Test
+    void checkInRegistraHorarioEMudaStatus() {
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+        when(agendamentoRepository.save(any(Agendamento.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        AgendamentoResponse response = service.realizarCheckIn(8L);
+
+        assertThat(response.status()).isEqualTo("AGUARDANDO_ATENDIMENTO");
+        assertThat(response.horarioCheckin()).isNotNull();
+        verify(agendamentoRepository).save(agendamento);
+    }
+
+    @Test
+    void checkInEhIdempotenteQuandoJaEstaAguardando() {
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGUARDANDO_ATENDIMENTO);
+        LocalDateTime checkin = LocalDateTime.of(2026, 5, 24, 9, 5);
+        agendamento.setHorarioCheckin(checkin);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        AgendamentoResponse response = service.realizarCheckIn(8L);
+
+        assertThat(response.status()).isEqualTo("AGUARDANDO_ATENDIMENTO");
+        assertThat(response.horarioCheckin()).isEqualTo(checkin);
+        verify(agendamentoRepository, never()).save(any(Agendamento.class));
+    }
+
+    @Test
+    void rejeitaCheckInDeAgendamentoCancelado() {
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.CANCELADO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        assertThatThrownBy(() -> service.realizarCheckIn(8L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("AGENDADO");
+    }
+
+    @Test
+    void rejeitaCheckInDeAgendamentoConcluido() {
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.CONCLUIDO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        assertThatThrownBy(() -> service.realizarCheckIn(8L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("AGENDADO");
+    }
+
+    @Test
+    void listaFilaEsperaDoDiaPorVeterinario() {
+        Agendamento aguardando = agendamentoExistente(StatusAgendamento.AGUARDANDO_ATENDIMENTO);
+        when(agendamentoRepository.buscarNoPeriodo(
+                DATA, DATA, null, VETERINARIO_ID, null, StatusAgendamento.AGUARDANDO_ATENDIMENTO))
+                .thenReturn(List.of(aguardando));
+
+        List<AgendamentoResponse> fila = service.listarFilaEspera(VETERINARIO_ID, DATA);
+
+        assertThat(fila).hasSize(1);
+        assertThat(fila.get(0).status()).isEqualTo("AGUARDANDO_ATENDIMENTO");
     }
 
     @Test
