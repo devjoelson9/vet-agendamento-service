@@ -1,7 +1,6 @@
 package br.com.vet.agendamento.domain.model;
 
 import br.com.vet.agendamento.domain.enums.StatusAgendamento;
-import br.com.vet.agendamento.domain.enums.TipoAgendamento;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -16,7 +15,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 @Entity
 @Table(name = "agendamento")
@@ -38,25 +39,21 @@ public class Agendamento {
     @Column(name = "veterinario_id", nullable = false)
     private Long veterinarioId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private TipoAgendamento tipo;
+    @Column(nullable = false)
+    private LocalDate data;
 
-    @Column(name = "servico_nome", nullable = false, length = 120)
-    private String servicoNome;
+    @Column(name = "hora_inicio", nullable = false)
+    private LocalTime horaInicio;
 
-    @Column(name = "inicio_em", nullable = false)
-    private LocalDateTime inicioEm;
+    @Column(name = "hora_fim", nullable = false)
+    private LocalTime horaFim;
 
-    @Column(name = "duracao_minutos", nullable = false)
-    private Integer duracaoMinutos;
+    @Column(name = "horario_checkin")
+    private LocalDateTime horarioCheckin;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
-    private StatusAgendamento status = StatusAgendamento.AGUARDANDO_CONFIRMACAO;
-
-    @Column(columnDefinition = "TEXT")
-    private String observacoes;
+    private StatusAgendamento status = StatusAgendamento.AGENDADO;
 
     @Column(name = "criado_em", nullable = false)
     private LocalDateTime criadoEm;
@@ -70,22 +67,10 @@ public class Agendamento {
     @PrePersist
     void prePersist() {
         criadoEm = LocalDateTime.now();
-        normalizarServico();
     }
 
     @PreUpdate
     void preUpdate() {
         atualizadoEm = LocalDateTime.now();
-        normalizarServico();
-    }
-
-    public LocalDateTime getFimEm() {
-        return inicioEm.plusMinutes(duracaoMinutos);
-    }
-
-    private void normalizarServico() {
-        if (servicoNome != null) {
-            servicoNome = servicoNome.trim();
-        }
     }
 }

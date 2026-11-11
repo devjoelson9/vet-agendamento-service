@@ -2,20 +2,20 @@ package br.com.vet.agendamento.application.dto.response;
 
 import br.com.vet.agendamento.domain.model.Agendamento;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 public record AgendamentoResponse(
         Long id,
         Long tutorId,
         Long animalId,
         Long veterinarioId,
-        String tipo,
-        String servicoNome,
-        LocalDateTime inicioEm,
-        LocalDateTime fimEm,
-        Integer duracaoMinutos,
+        LocalDate data,
+        LocalTime horaInicio,
+        LocalTime horaFim,
+        LocalDateTime horarioCheckin,
         String status,
-        String observacoes,
         LocalDateTime criadoEm,
         LocalDateTime atualizadoEm
 ) {
@@ -25,13 +25,11 @@ public record AgendamentoResponse(
                 agendamento.getTutorId(),
                 agendamento.getAnimalId(),
                 agendamento.getVeterinarioId(),
-                agendamento.getTipo().name(),
-                agendamento.getServicoNome(),
-                agendamento.getInicioEm(),
-                agendamento.getFimEm(),
-                agendamento.getDuracaoMinutos(),
+                agendamento.getData(),
+                agendamento.getHoraInicio(),
+                agendamento.getHoraFim(),
+                agendamento.getHorarioCheckin(),
                 agendamento.getStatus().name(),
-                agendamento.getObservacoes(),
                 agendamento.getCriadoEm(),
                 agendamento.getAtualizadoEm()
         );

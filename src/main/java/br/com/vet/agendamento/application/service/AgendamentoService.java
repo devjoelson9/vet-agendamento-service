@@ -7,50 +7,48 @@ import br.com.vet.agendamento.application.exception.ConflictException;
 import br.com.vet.agendamento.application.exception.ResourceNotFoundException;
 import br.com.vet.agendamento.domain.enums.StatusAgendamento;
 import br.com.vet.agendamento.domain.model.Agendamento;
+import br.com.vet.agendamento.domain.model.Disponibilidade;
 import br.com.vet.agendamento.domain.repository.AgendamentoRepository;
-import br.com.vet.agendamento.domain.repository.BloqueioAgendaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class AgendamentoService {
 
-    private static final List<StatusAgendamento> STATUS_QUE_OCUPAM_HORARIO = List.of(
-            StatusAgendamento.AGUARDANDO_CONFIRMACAO,
-            StatusAgendamento.CONFIRMADO,
-            StatusAgendamento.CHECK_IN,
-            StatusAgendamento.EM_ATENDIMENTO
-    );
-
     private final AgendamentoRepository agendamentoRepository;
-    private final BloqueioAgendaRepository bloqueioRepository;
+    private final DisponibilidadeService disponibilidadeService;
 
     @Transactional
     public AgendamentoResponse criar(AgendamentoRequest request) {
-        validarDuracao(request.duracaoMinutos());
+        Disponibilidade disponibilidade = disponibilidadeService.resolverDisponibilidade(
+                request.veterinarioId(), request.data(), request.horaInicio());
+        LocalTime horaFim = request.horaInicio().plusMinutes(disponibilidade.getDuracaoConsulta());
+
+        validarConflito(request.veterinarioId(), request.data(), request.horaInicio(), horaFim, null);
+
         Agendamento agendamento = new Agendamento();
-        atualizarDados(agendamento, request);
-        agendamento.setStatus(StatusAgendamento.AGUARDANDO_CONFIRMACAO);
-        validarDisponibilidade(agendamento, null);
+        aplicarDados(agendamento, request, horaFim);
+        agendamento.setStatus(StatusAgendamento.AGENDADO);
         return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
     }
 
     @Transactional(readOnly = true)
     public List<AgendamentoResponse> listar(
-            LocalDateTime inicio,
-            LocalDateTime fim,
+            LocalDate inicio,
+            LocalDate fim,
             Long veterinarioId,
             Long animalId,
             StatusAgendamento status
     ) {
         validarPeriodo(inicio, fim);
-        return agendamentoRepository.buscarNoPeriodo(
-                        inicio, fim, veterinarioId, animalId, status == null ? null : status.name())
+        return agendamentoRepository.buscarNoPeriodo(inicio, fim, veterinarioId, animalId, status)
                 .stream()
                 .map(AgendamentoResponse::from)
                 .toList();
@@ -63,30 +61,29 @@ public class AgendamentoService {
 
     @Transactional
     public AgendamentoResponse atualizar(Long id, AgendamentoRequest request) {
-        validarDuracao(request.duracaoMinutos());
         Agendamento agendamento = buscarAtivo(id);
-        if (agendamento.getStatus() == StatusAgendamento.CANCELADO
-                || agendamento.getStatus() == StatusAgendamento.CONCLUIDO
-                || agendamento.getStatus() == StatusAgendamento.FALTOU) {
-            throw new BusinessException("Agendamentos encerrados não podem ser alterados");
+        if (agendamento.getStatus() != StatusAgendamento.AGENDADO) {
+            throw new BusinessException("Somente agendamentos com status AGENDADO podem ser reagendados");
         }
-        atualizarDados(agendamento, request);
-        validarDisponibilidade(agendamento, id);
+
+        Disponibilidade disponibilidade = disponibilidadeService.resolverDisponibilidade(
+                request.veterinarioId(), request.data(), request.horaInicio());
+        LocalTime horaFim = request.horaInicio().plusMinutes(disponibilidade.getDuracaoConsulta());
+
+        validarConflito(request.veterinarioId(), request.data(), request.horaInicio(), horaFim, id);
+
+        aplicarDados(agendamento, request, horaFim);
         return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
     }
 
     @Transactional
     public AgendamentoResponse alterarStatus(Long id, StatusAgendamento status) {
         Agendamento agendamento = buscarAtivo(id);
-        if (agendamento.getStatus() == StatusAgendamento.CANCELADO
-                || agendamento.getStatus() == StatusAgendamento.CONCLUIDO
-                || agendamento.getStatus() == StatusAgendamento.FALTOU) {
-            throw new BusinessException("Agendamentos encerrados não podem ter o status alterado");
-        }
-        if (status == StatusAgendamento.CONFIRMADO
-                || status == StatusAgendamento.CHECK_IN
-                || status == StatusAgendamento.EM_ATENDIMENTO) {
-            validarDisponibilidade(agendamento, id);
+        validarTransicao(agendamento.getStatus(), status);
+
+        if (status == StatusAgendamento.AGUARDANDO_ATENDIMENTO
+                && agendamento.getHorarioCheckin() == null) {
+            agendamento.setHorarioCheckin(LocalDateTime.now());
         }
         agendamento.setStatus(status);
         return AgendamentoResponse.from(agendamentoRepository.save(agendamento));
@@ -95,47 +92,54 @@ public class AgendamentoService {
     @Transactional
     public void cancelar(Long id) {
         Agendamento agendamento = buscarAtivo(id);
-        if (agendamento.getStatus() == StatusAgendamento.CONCLUIDO
-                || agendamento.getStatus() == StatusAgendamento.FALTOU) {
-            throw new BusinessException("Agendamentos concluídos ou com falta não podem ser cancelados");
+        if (agendamento.getStatus() != StatusAgendamento.AGENDADO
+                && agendamento.getStatus() != StatusAgendamento.AGUARDANDO_ATENDIMENTO) {
+            throw new BusinessException(
+                    "Somente agendamentos AGENDADO ou AGUARDANDO_ATENDIMENTO podem ser cancelados");
         }
         agendamento.setStatus(StatusAgendamento.CANCELADO);
         agendamentoRepository.save(agendamento);
     }
 
-    private void atualizarDados(Agendamento agendamento, AgendamentoRequest request) {
+    private void aplicarDados(Agendamento agendamento, AgendamentoRequest request, LocalTime horaFim) {
         agendamento.setTutorId(request.tutorId());
         agendamento.setAnimalId(request.animalId());
         agendamento.setVeterinarioId(request.veterinarioId());
-        agendamento.setTipo(request.tipo());
-        agendamento.setServicoNome(request.servicoNome());
-        agendamento.setInicioEm(request.inicioEm());
-        agendamento.setDuracaoMinutos(request.duracaoMinutos());
-        agendamento.setObservacoes(request.observacoes());
+        agendamento.setData(request.data());
+        agendamento.setHoraInicio(request.horaInicio());
+        agendamento.setHoraFim(horaFim);
     }
 
-    private void validarDisponibilidade(Agendamento agendamento, Long idIgnorado) {
-        LocalDateTime inicio = agendamento.getInicioEm();
-        LocalDateTime fim = agendamento.getFimEm();
+    private void validarConflito(
+            Long veterinarioId, LocalDate data, LocalTime horaInicio, LocalTime horaFim, Long idIgnorado) {
         if (agendamentoRepository.existeConflito(
-                agendamento.getVeterinarioId(), inicio, fim,
-                STATUS_QUE_OCUPAM_HORARIO.stream().map(Enum::name).toList(), idIgnorado)) {
+                veterinarioId, data, horaInicio, horaFim,
+                StatusAgendamento.CANCELADO, idIgnorado)) {
             throw new ConflictException("O veterinário já possui um agendamento nesse horário");
         }
-        if (bloqueioRepository.existeConflito(agendamento.getVeterinarioId(), inicio, fim)) {
-            throw new ConflictException("O horário está bloqueado na agenda");
+    }
+
+    private void validarTransicao(StatusAgendamento atual, StatusAgendamento novo) {
+        if (atual == novo) {
+            return;
+        }
+        boolean valida = switch (atual) {
+            case AGENDADO -> novo == StatusAgendamento.AGUARDANDO_ATENDIMENTO
+                    || novo == StatusAgendamento.CANCELADO;
+            case AGUARDANDO_ATENDIMENTO -> novo == StatusAgendamento.ATENDIMENTO_REALIZADO
+                    || novo == StatusAgendamento.CANCELADO;
+            case ATENDIMENTO_REALIZADO -> novo == StatusAgendamento.CONCLUIDO;
+            case CONCLUIDO, CANCELADO -> false;
+        };
+        if (!valida) {
+            throw new BusinessException("Transição de status inválida: " + atual + " -> " + novo);
         }
     }
 
-    private void validarDuracao(Integer duracaoMinutos) {
-        if (duracaoMinutos < 5 || duracaoMinutos > 480) {
-            throw new BusinessException("A duração deve ser entre 5 e 480 minutos");
-        }
-    }
-
-    private void validarPeriodo(LocalDateTime inicio, LocalDateTime fim) {
-        if (inicio == null || fim == null || !fim.isAfter(inicio)) {
-            throw new BusinessException("O período deve conter início e fim válidos, com fim posterior ao início");
+    private void validarPeriodo(LocalDate inicio, LocalDate fim) {
+        if (inicio == null || fim == null || fim.isBefore(inicio)) {
+            throw new BusinessException(
+                    "O período deve conter início e fim válidos, com fim igual ou posterior ao início");
         }
     }
 
