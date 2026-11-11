@@ -75,6 +75,17 @@ public class AgendamentoService {
         return AgendamentoResponse.from(agendamento);
     }
 
+    @Transactional(readOnly = true)
+    public List<AgendamentoResponse> listarFilaEspera(Long veterinarioId, LocalDate data) {
+        LocalDate dia = data != null ? data : LocalDate.now();
+        return agendamentoRepository
+                .buscarNoPeriodo(dia, dia, null, veterinarioId, null,
+                        StatusAgendamento.AGUARDANDO_ATENDIMENTO)
+                .stream()
+                .map(AgendamentoResponse::from)
+                .toList();
+    }
+
     @Transactional
     public AgendamentoResponse atualizar(Long id, AgendamentoRequest request) {
         Agendamento agendamento = buscarAtivo(id);

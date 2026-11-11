@@ -62,6 +62,15 @@ public class AgendamentoController {
         return ResponseEntity.ok(disponibilidadeService.horariosDisponiveis(veterinarioId, data));
     }
 
+    @GetMapping("/fila-espera")
+    @PreAuthorize("hasAnyRole('RECEPCIONISTA', 'VETERINARIO', 'ADMIN')")
+    public ResponseEntity<List<AgendamentoResponse>> filaEspera(
+            @RequestParam(required = false) Long veterinarioId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data
+    ) {
+        return ResponseEntity.ok(service.listarFilaEspera(veterinarioId, data));
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('TUTOR', 'RECEPCIONISTA', 'VETERINARIO', 'ADMIN')")
     public ResponseEntity<AgendamentoResponse> buscar(@PathVariable Long id) {
