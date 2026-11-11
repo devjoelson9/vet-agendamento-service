@@ -69,6 +69,7 @@ public class AgendamentoController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TUTOR', 'RECEPCIONISTA')")
     public ResponseEntity<AgendamentoResponse> atualizar(
             @PathVariable Long id,
             @Valid @RequestBody AgendamentoRequest request
@@ -77,6 +78,7 @@ public class AgendamentoController {
     }
 
     @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('RECEPCIONISTA', 'VETERINARIO', 'ADMIN')")
     public ResponseEntity<AgendamentoResponse> alterarStatus(
             @PathVariable Long id,
             @Valid @RequestBody StatusAgendamentoRequest request
@@ -85,6 +87,7 @@ public class AgendamentoController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TUTOR', 'RECEPCIONISTA')")
     public ResponseEntity<Void> cancelar(@PathVariable Long id) {
         service.cancelar(id);
         return ResponseEntity.noContent().build();
