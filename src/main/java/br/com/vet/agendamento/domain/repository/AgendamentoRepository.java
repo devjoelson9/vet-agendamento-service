@@ -19,6 +19,7 @@ public interface AgendamentoRepository extends JpaRepository<Agendamento, Long> 
             select a from Agendamento a
             where a.deletadoEm is null
               and a.data between :inicio and :fim
+              and (:tutorId is null or a.tutorId = :tutorId)
               and (:veterinarioId is null or a.veterinarioId = :veterinarioId)
               and (:animalId is null or a.animalId = :animalId)
               and (:status is null or a.status = :status)
@@ -27,6 +28,7 @@ public interface AgendamentoRepository extends JpaRepository<Agendamento, Long> 
     List<Agendamento> buscarNoPeriodo(
             @Param("inicio") LocalDate inicio,
             @Param("fim") LocalDate fim,
+            @Param("tutorId") Long tutorId,
             @Param("veterinarioId") Long veterinarioId,
             @Param("animalId") Long animalId,
             @Param("status") StatusAgendamento status

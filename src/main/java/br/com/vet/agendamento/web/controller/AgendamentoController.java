@@ -35,19 +35,22 @@ public class AgendamentoController {
     private final DisponibilidadeService disponibilidadeService;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('TUTOR', 'RECEPCIONISTA')")
     public ResponseEntity<AgendamentoResponse> criar(@Valid @RequestBody AgendamentoRequest request) {
         return ResponseEntity.status(201).body(service.criar(request));
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('TUTOR', 'RECEPCIONISTA', 'VETERINARIO', 'ADMIN')")
     public ResponseEntity<List<AgendamentoResponse>> listar(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fim,
+            @RequestParam(required = false) Long tutorId,
             @RequestParam(required = false) Long veterinarioId,
             @RequestParam(required = false) Long animalId,
             @RequestParam(required = false) StatusAgendamento status
     ) {
-        return ResponseEntity.ok(service.listar(inicio, fim, veterinarioId, animalId, status));
+        return ResponseEntity.ok(service.listar(inicio, fim, tutorId, veterinarioId, animalId, status));
     }
 
     @GetMapping("/horarios-disponiveis")
@@ -60,6 +63,7 @@ public class AgendamentoController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TUTOR', 'RECEPCIONISTA', 'VETERINARIO', 'ADMIN')")
     public ResponseEntity<AgendamentoResponse> buscar(@PathVariable Long id) {
         return ResponseEntity.ok(service.buscar(id));
     }
