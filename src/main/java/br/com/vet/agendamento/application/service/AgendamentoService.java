@@ -78,9 +78,17 @@ public class AgendamentoService {
     @Transactional
     public AgendamentoResponse atualizar(Long id, AgendamentoRequest request) {
         Agendamento agendamento = buscarAtivo(id);
+        validarAcessoAoTutor(agendamento.getTutorId());
         if (agendamento.getStatus() != StatusAgendamento.AGENDADO) {
             throw new BusinessException("Somente agendamentos com status AGENDADO podem ser reagendados");
         }
+        if (request.tutorId() != null && !request.tutorId().equals(agendamento.getTutorId())) {
+            throw new BusinessException("Não é permitido alterar o tutor no reagendamento");
+        }
+
+        TutorInfo tutor = buscarTutorDoAgendamento(agendamento.getTutorId());
+        validarTutorAtivo(tutor);
+        validarAnimalDoTutor(tutor.id(), request.animalId());
 
         Disponibilidade disponibilidade = disponibilidadeService.resolverDisponibilidade(
                 request.veterinarioId(), request.data(), request.horaInicio());
@@ -108,6 +116,7 @@ public class AgendamentoService {
     @Transactional
     public void cancelar(Long id) {
         Agendamento agendamento = buscarAtivo(id);
+        validarAcessoAoTutor(agendamento.getTutorId());
         if (agendamento.getStatus() != StatusAgendamento.AGENDADO
                 && agendamento.getStatus() != StatusAgendamento.AGUARDANDO_ATENDIMENTO) {
             throw new BusinessException(
@@ -156,6 +165,12 @@ public class AgendamentoService {
             return identidadeGateway.buscarTutorAutenticado().id();
         }
         return tutorIdInformado;
+    }
+
+    private TutorInfo buscarTutorDoAgendamento(Long tutorIdDoAgendamento) {
+        return usuarioAutenticado.isTutor()
+                ? identidadeGateway.buscarTutorAutenticado()
+                : identidadeGateway.buscarTutor(tutorIdDoAgendamento);
     }
 
     private void validarAcessoAoTutor(Long tutorIdDoAgendamento) {

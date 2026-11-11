@@ -175,6 +175,150 @@ class AgendamentoServiceTest {
         assertThat(response.horarioCheckin()).isNotNull();
     }
 
+    @Test
+    void tutorReagendaProprioAgendamentoMantendoTutor() {
+        autenticarTutorAtivo();
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+        prepararReagendamentoLivre(LocalTime.of(10, 0), 8L);
+
+        AgendamentoResponse response = service.atualizar(8L, request(null, LocalTime.of(10, 0)));
+
+        assertThat(response.tutorId()).isEqualTo(TUTOR_ID);
+        assertThat(response.animalId()).isEqualTo(ANIMAL_ID);
+        assertThat(response.horaInicio()).isEqualTo(LocalTime.of(10, 0));
+        assertThat(response.horaFim()).isEqualTo(LocalTime.of(10, 30));
+        assertThat(response.status()).isEqualTo("AGENDADO");
+    }
+
+    @Test
+    void recepcionistaReagendaAgendamentoDeQualquerTutor() {
+        when(usuarioAutenticado.isTutor()).thenReturn(false);
+        when(identidadeGateway.buscarTutor(TUTOR_ID)).thenReturn(tutor(TUTOR_ID, "ATIVO"));
+        when(identidadeGateway.buscarAnimalDoTutor(TUTOR_ID, ANIMAL_ID))
+                .thenReturn(animal(ANIMAL_ID, TUTOR_ID));
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+        prepararReagendamentoLivre(LocalTime.of(10, 0), 8L);
+
+        AgendamentoResponse response = service.atualizar(8L, request(TUTOR_ID, LocalTime.of(10, 0)));
+
+        assertThat(response.tutorId()).isEqualTo(TUTOR_ID);
+        assertThat(response.horaInicio()).isEqualTo(LocalTime.of(10, 0));
+        verify(identidadeGateway).buscarTutor(TUTOR_ID);
+        verify(identidadeGateway).buscarAnimalDoTutor(TUTOR_ID, ANIMAL_ID);
+    }
+
+    @Test
+    void rejeitaReagendamentoDeAgendamentoDeOutroTutor() {
+        when(usuarioAutenticado.isTutor()).thenReturn(true);
+        when(identidadeGateway.buscarTutorAutenticado()).thenReturn(tutor(TUTOR_ID, "ATIVO"));
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        agendamento.setTutorId(99L);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        assertThatThrownBy(() -> service.atualizar(8L, request(null, LocalTime.of(10, 0))))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("outro tutor");
+    }
+
+    @Test
+    void rejeitaReagendamentoComAnimalDeOutroTutor() {
+        when(usuarioAutenticado.isTutor()).thenReturn(true);
+        when(identidadeGateway.buscarTutorAutenticado()).thenReturn(tutor(TUTOR_ID, "ATIVO"));
+        when(identidadeGateway.buscarAnimalDoTutorAutenticado(ANIMAL_ID))
+                .thenReturn(animal(ANIMAL_ID, 99L));
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        assertThatThrownBy(() -> service.atualizar(8L, request(null, LocalTime.of(10, 0))))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("não pertence ao tutor");
+    }
+
+    @Test
+    void rejeitaReagendamentoQuandoTutorEstaDesativado() {
+        when(usuarioAutenticado.isTutor()).thenReturn(false);
+        when(identidadeGateway.buscarTutor(TUTOR_ID)).thenReturn(tutor(TUTOR_ID, "DESATIVADO"));
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        assertThatThrownBy(() -> service.atualizar(8L, request(TUTOR_ID, LocalTime.of(10, 0))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("desativada");
+    }
+
+    @Test
+    void rejeitaReagendamentoQueTentaAlterarTutor() {
+        when(usuarioAutenticado.isTutor()).thenReturn(false);
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        assertThatThrownBy(() -> service.atualizar(8L, request(99L, LocalTime.of(10, 0))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("alterar o tutor");
+    }
+
+    @Test
+    void tutorCancelaProprioAgendamentoELiberaHorario() {
+        when(usuarioAutenticado.isTutor()).thenReturn(true);
+        when(identidadeGateway.buscarTutorAutenticado()).thenReturn(tutor(TUTOR_ID, "ATIVO"));
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+        when(agendamentoRepository.save(any(Agendamento.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.cancelar(8L);
+
+        assertThat(agendamento.getStatus()).isEqualTo(StatusAgendamento.CANCELADO);
+        verify(agendamentoRepository).save(agendamento);
+    }
+
+    @Test
+    void rejeitaCancelamentoDeAgendamentoDeOutroTutor() {
+        when(usuarioAutenticado.isTutor()).thenReturn(true);
+        when(identidadeGateway.buscarTutorAutenticado()).thenReturn(tutor(TUTOR_ID, "ATIVO"));
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGENDADO);
+        agendamento.setTutorId(99L);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        assertThatThrownBy(() -> service.cancelar(8L))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("outro tutor");
+    }
+
+    @Test
+    void recepcionistaCancelaAgendamentoAguardandoAtendimento() {
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.AGUARDANDO_ATENDIMENTO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+        when(agendamentoRepository.save(any(Agendamento.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.cancelar(8L);
+
+        assertThat(agendamento.getStatus()).isEqualTo(StatusAgendamento.CANCELADO);
+    }
+
+    @Test
+    void rejeitaCancelamentoDeAgendamentoConcluido() {
+        Agendamento agendamento = agendamentoExistente(StatusAgendamento.CONCLUIDO);
+        when(agendamentoRepository.findByIdAndDeletadoEmIsNull(8L))
+                .thenReturn(Optional.of(agendamento));
+
+        assertThatThrownBy(() -> service.cancelar(8L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("podem ser cancelados");
+    }
+
     private void autenticarTutorAtivo() {
         when(usuarioAutenticado.isTutor()).thenReturn(true);
         when(identidadeGateway.buscarTutorAutenticado()).thenReturn(tutor(TUTOR_ID, "ATIVO"));
@@ -195,6 +339,17 @@ class AgendamentoServiceTest {
                     agendamento.setId(8L);
                     return agendamento;
                 });
+    }
+
+    private void prepararReagendamentoLivre(LocalTime horaInicio, Long idIgnorado) {
+        when(disponibilidadeService.resolverDisponibilidade(VETERINARIO_ID, DATA, horaInicio))
+                .thenReturn(disponibilidade());
+        when(agendamentoRepository.existeConflito(
+                eq(VETERINARIO_ID), eq(DATA), eq(horaInicio), eq(horaInicio.plusMinutes(30)),
+                eq(StatusAgendamento.CANCELADO), eq(idIgnorado)))
+                .thenReturn(false);
+        when(agendamentoRepository.save(any(Agendamento.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     private AgendamentoRequest request(Long tutorId, LocalTime horaInicio) {
