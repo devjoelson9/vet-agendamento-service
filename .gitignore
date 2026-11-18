@@ -2,3 +2,7 @@ target/
 .env
 .idea/
 *.iml
+
+# Anotacoes locais (nao versionar)
+/instrucoes.md
+/requitos.md
