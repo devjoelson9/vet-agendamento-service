@@ -36,7 +36,10 @@ public class AtendimentoEventoListener {
 
     private void aplicarEvento(Agendamento agendamento, AtendimentoEvento evento) {
         StatusAgendamento novoStatus = switch (String.valueOf(evento.status())) {
-            case "EM_ANDAMENTO", "FINALIZADO" -> StatusAgendamento.ATENDIMENTO_REALIZADO;
+            // O início do atendimento não altera o agendamento: ele permanece
+            // AGUARDANDO_ATENDIMENTO até a finalização clínica (RN09).
+            case "EM_ANDAMENTO" -> null;
+            case "FINALIZADO" -> StatusAgendamento.ATENDIMENTO_REALIZADO;
             case "CANCELADO" -> StatusAgendamento.AGUARDANDO_ATENDIMENTO;
             default -> null;
         };
